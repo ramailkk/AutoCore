@@ -35,7 +35,9 @@ def main() -> None:
         "# Kaggle heavy-tier plumbing check\n\n"
         + "\n".join(gpu_lines)
         + f"\n\nDiff fetch status: {resp.status_code}, length: {diff_len} chars\n\n"
-        "Real heavy-model inference is not wired up yet. This run only "
+        "Real heavy-model inference is not wired up yet — chosen model for "
+        "that swap is DeepSeek-Coder-V2-Lite-Instruct (16B MoE, ~2.4B active "
+        "params, fits comfortably on the 2xT4 budget). This run only "
         "validates GPU access and GitHub connectivity from inside a "
         "Kaggle kernel triggered via the API.\n"
     )

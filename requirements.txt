@@ -1,3 +1,5 @@
 requests
 pathspec
 kaggle
+langgraph
+ruff
