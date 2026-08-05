@@ -1,6 +1,6 @@
 {
   "id": "$KAGGLE_USERNAME/$SLUG",
-  "title": "CORE Heavy Review Check",
+  "title": "CORE Heavy Review",
   "code_file": "heavy_review.py",
   "language": "python",
   "kernel_type": "script",
