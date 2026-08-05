@@ -53,7 +53,10 @@ def run_and_collect(api, kernel_slug: str) -> str:
     while waited < POLL_TIMEOUT_SECONDS:
         status = api.kernels_status(kernel_slug)
         state = getattr(status, "status", None)
-        print(f"kernel status: {state} (waited {waited}s)")
+        # status-string handling here is unverified against this kagglesdk
+        # version — print the raw object so a mismatch is visible in logs
+        # instead of silently looping until POLL_TIMEOUT_SECONDS.
+        print(f"kernel status: {state!r} (waited {waited}s) raw={status!r}")
         if state in DONE_STATES:
             if state != "complete":
                 fail(f"kernel run ended with status: {state}")
