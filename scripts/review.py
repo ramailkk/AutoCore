@@ -1,80 +1,38 @@
 import os
-import sys
 
-import requests
-from dotenv import load_dotenv
+from github_client import get_diff, post_comment
+from llm_client import chat
+from util import fail
 
-load_dotenv()
-
-GITHUB_API = "https://api.github.com"
-GROQ_API = "https://api.groq.com/openai/v1/chat/completions"
 MAX_DIFF_CHARS = 40_000
+PROFILE_PATH = os.path.join(".reviewer", "profile.md")
 
 SYSTEM_PROMPT = (
-    "You are a concise code reviewer. You will be given a pull request diff. "
+    "You are a concise code reviewer. You will be given a pull request diff, "
+    "optionally preceded by a repo profile for context. "
     "Point out real bugs, risky changes, and clear style issues. "
     "Be specific (file/line if visible in the diff). "
     "If the diff looks fine, say so briefly. Do not pad the response."
 )
 
 
-def fail(msg: str) -> None:
-    print(f"ERROR: {msg}", file=sys.stderr)
-    sys.exit(1)
+def load_profile() -> str:
+    if os.path.exists(PROFILE_PATH):
+        with open(PROFILE_PATH, encoding="utf-8") as f:
+            return f.read()
+    return ""
 
 
-def get_diff(repo: str, pr_number: str, token: str) -> str:
-    url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}"
-    resp = requests.get(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github.v3.diff",
-        },
-        timeout=30,
-    )
-    if resp.status_code != 200:
-        fail(f"failed to fetch PR diff ({resp.status_code}): {resp.text[:500]}")
-    return resp.text
-
-
-def review_diff(diff: str, api_key: str, model: str) -> str:
+def review_diff(diff: str, profile: str, api_key: str, model: str) -> str:
     truncated = diff[:MAX_DIFF_CHARS]
     note = "\n\n[diff truncated for length]" if len(diff) > MAX_DIFF_CHARS else ""
 
-    resp = requests.post(
-        GROQ_API,
-        headers={"Authorization": f"Bearer {api_key}"},
-        json={
-            "model": model,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": truncated + note},
-            ],
-            "temperature": 0.2,
-        },
-        timeout=60,
-    )
-    if resp.status_code != 200:
-        fail(f"Groq API call failed ({resp.status_code}): {resp.text[:500]}")
+    user_prompt = ""
+    if profile:
+        user_prompt += f"# Repo profile\n\n{profile}\n\n# Diff to review\n\n"
+    user_prompt += truncated + note
 
-    data = resp.json()
-    return data["choices"][0]["message"]["content"]
-
-
-def post_comment(repo: str, pr_number: str, token: str, body: str) -> None:
-    url = f"{GITHUB_API}/repos/{repo}/issues/{pr_number}/comments"
-    resp = requests.post(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-        },
-        json={"body": f"### AI Code Review\n\n{body}"},
-        timeout=30,
-    )
-    if resp.status_code != 201:
-        fail(f"failed to post PR comment ({resp.status_code}): {resp.text[:500]}")
+    return chat(SYSTEM_PROMPT, user_prompt, api_key, model)
 
 
 def main() -> None:
@@ -89,8 +47,9 @@ def main() -> None:
         print("Empty diff, nothing to review.")
         return
 
-    review = review_diff(diff, api_key, model)
-    post_comment(repo, pr_number, token, review)
+    profile = load_profile()
+    review = review_diff(diff, profile, api_key, model)
+    post_comment(repo, pr_number, token, f"### AI Code Review\n\n{review}")
     print("Posted review comment.")
 
 

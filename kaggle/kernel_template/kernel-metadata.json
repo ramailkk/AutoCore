@@ -1,0 +1,13 @@
+{
+  "id": "$KAGGLE_USERNAME/$SLUG",
+  "title": "CORE Heavy Review Check",
+  "code_file": "heavy_review.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_internet": "true",
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": []
+}
