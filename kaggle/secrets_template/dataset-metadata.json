@@ -1,0 +1,5 @@
+{
+  "title": "$SLUG",
+  "id": "$KAGGLE_USERNAME/$SLUG",
+  "licenses": [{"name": "unknown"}]
+}

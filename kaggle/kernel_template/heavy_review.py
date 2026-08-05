@@ -1,14 +1,20 @@
 import torch
 import requests
-from kaggle_secrets import UserSecretsClient
 
 REPO = "$REPO"
 PR_NUMBER = "$PR_NUMBER"
 
+# Kaggle Secrets (kaggle_secrets.UserSecretsClient) attached via the UI do
+# not carry over to kernels triggered through the API (kernels_push) — this
+# is a known Kaggle API limitation, not something fixable on our end. The
+# token is instead delivered via a private dataset the dispatch script
+# creates/updates before each push, mounted read-only under /kaggle/input.
+TOKEN_PATH = "/kaggle/input/core-heavy-review-secrets/github_token.txt"
+
 
 def main() -> None:
-    secrets = UserSecretsClient()
-    token = secrets.get_secret("GITHUB_TOKEN")
+    with open(TOKEN_PATH, encoding="utf-8") as f:
+        token = f.read().strip()
 
     gpu_lines = [f"GPUs available: {torch.cuda.device_count()}"]
     for i in range(torch.cuda.device_count()):
