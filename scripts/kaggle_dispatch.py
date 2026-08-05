@@ -44,8 +44,10 @@ def prepare_kernel_dir(kaggle_username: str, repo: str, pr_number: str) -> str:
 
 
 def run_and_collect(kernel_slug: str) -> str:
-    # Imported here, not at module load, since the kaggle package reads
-    # KAGGLE_USERNAME/KAGGLE_KEY from the environment at import/auth time.
+    # Credentials come from ~/.kaggle/kaggle.json, written by the workflow's
+    # "Configure Kaggle credentials" step — more reliable than the
+    # KAGGLE_USERNAME/KAGGLE_KEY env vars, which 401'd against this
+    # kagglesdk-backed client.
     from kaggle.api.kaggle_api_extended import KaggleApi
 
     api = KaggleApi()
