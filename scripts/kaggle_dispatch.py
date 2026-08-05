@@ -13,7 +13,12 @@ KERNEL_SLUG = "core-heavy-review-check"
 
 POLL_INTERVAL_SECONDS = 20
 POLL_TIMEOUT_SECONDS = 20 * 60
-DONE_STATES = {"complete", "error", "cancelled", "cancelAcknowledged"}
+# COMPLETE is confirmed from a real run's enum repr. These failure-state
+# names are a best guess (not yet observed) — if a run hits an unrecognized
+# terminal state, it'll fall through to the POLL_TIMEOUT_SECONDS failure
+# instead of this one, which will still surface in the logs via the raw
+# status print above.
+DONE_STATES = {"ERROR", "CANCELLED", "CANCELED", "CANCEL_ACKNOWLEDGED", "CANCEL_REQUESTED"}
 
 
 def render_template(path: str, values: dict) -> str:
@@ -52,15 +57,18 @@ def run_and_collect(api, kernel_slug: str) -> str:
     waited = 0
     while waited < POLL_TIMEOUT_SECONDS:
         status = api.kernels_status(kernel_slug)
+        # api.kernels_status returns a KernelWorkerStatus enum member, not a
+        # plain string — confirmed from a real run (repr looks like
+        # `<KernelWorkerStatus.COMPLETE: 2>`). Compare by .name, not by
+        # equality with a string.
         state = getattr(status, "status", None)
-        # status-string handling here is unverified against this kagglesdk
-        # version — print the raw object so a mismatch is visible in logs
-        # instead of silently looping until POLL_TIMEOUT_SECONDS.
-        print(f"kernel status: {state!r} (waited {waited}s) raw={status!r}")
-        if state in DONE_STATES:
-            if state != "complete":
-                fail(f"kernel run ended with status: {state}")
+        state_name = getattr(state, "name", str(state))
+        print(f"kernel status: {state_name} (waited {waited}s) raw={status!r}")
+        if state_name == "COMPLETE":
             break
+        if state_name in DONE_STATES:
+            failure_message = getattr(status, "failure_message", None)
+            fail(f"kernel run ended with status: {state_name} ({failure_message})")
         time.sleep(POLL_INTERVAL_SECONDS)
         waited += POLL_INTERVAL_SECONDS
     else:
