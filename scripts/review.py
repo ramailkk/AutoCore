@@ -1,3 +1,4 @@
+import json
 import os
 
 from github_client import get_diff, post_comment
@@ -6,13 +7,32 @@ from util import fail
 
 MAX_DIFF_CHARS = 40_000
 PROFILE_PATH = os.path.join(".reviewer", "profile.md")
+VALID_CATEGORIES = {"major", "minor", "advice", "none"}
+LABELS = {
+    "major": "Major",
+    "minor": "Minor",
+    "advice": "Advice",
+    "none": "No issues found",
+}
 
 SYSTEM_PROMPT = (
     "You are a concise code reviewer. You will be given a pull request diff, "
     "optionally preceded by a repo profile for context. "
-    "Point out real bugs, risky changes, and clear style issues. "
-    "Be specific (file/line if visible in the diff). "
-    "If the diff looks fine, say so briefly. Do not pad the response."
+    "Point out real bugs, risky changes, and clear style issues. Be specific "
+    "(file/line if visible in the diff).\n\n"
+    "Respond with a single JSON object with exactly two fields: "
+    '"category" and "review".\n'
+    '"category" is one of:\n'
+    '- "major": bugs, security issues, breaking changes, risky logic — needs '
+    "human attention before merging.\n"
+    '- "minor": safe, small, mechanical issues (formatting, typos, unused '
+    "imports, dead code) — low risk.\n"
+    '- "advice": non-blocking suggestions or style opinions, nothing actually '
+    "wrong.\n"
+    '- "none": the diff looks fine, nothing to flag.\n'
+    '"review" is the review text — specific and unpadded, or a brief '
+    'confirmation if category is "none".\n\n'
+    "Output only the JSON object, nothing else."
 )
 
 
@@ -23,7 +43,7 @@ def load_profile() -> str:
     return ""
 
 
-def review_diff(diff: str, profile: str, api_key: str, model: str) -> str:
+def classify_diff(diff: str, profile: str, api_key: str, model: str) -> tuple[str, str]:
     truncated = diff[:MAX_DIFF_CHARS]
     note = "\n\n[diff truncated for length]" if len(diff) > MAX_DIFF_CHARS else ""
 
@@ -32,7 +52,20 @@ def review_diff(diff: str, profile: str, api_key: str, model: str) -> str:
         user_prompt += f"# Repo profile\n\n{profile}\n\n# Diff to review\n\n"
     user_prompt += truncated + note
 
-    return chat(SYSTEM_PROMPT, user_prompt, api_key, model)
+    raw = chat(SYSTEM_PROMPT, user_prompt, api_key, model, json_mode=True)
+
+    try:
+        data = json.loads(raw)
+        category = str(data.get("category", "")).lower()
+        review = str(data.get("review", "")).strip()
+        if category not in VALID_CATEGORIES or not review:
+            raise ValueError("missing or invalid category/review field")
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"WARNING: could not parse classification JSON ({e}); falling back to major/raw text")
+        category = "major"
+        review = raw
+
+    return category, review
 
 
 def main() -> None:
@@ -48,8 +81,11 @@ def main() -> None:
         return
 
     profile = load_profile()
-    review = review_diff(diff, profile, api_key, model)
-    post_comment(repo, pr_number, token, f"### AI Code Review\n\n{review}")
+    category, review = classify_diff(diff, profile, api_key, model)
+    print(f"Classified as: {category}")
+
+    label = LABELS.get(category, category)
+    post_comment(repo, pr_number, token, f"### AI Code Review — {label}\n\n{review}")
     print("Posted review comment.")
 
 
