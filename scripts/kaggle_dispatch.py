@@ -45,13 +45,15 @@ def prepare_kernel_dir(kaggle_username: str, repo: str, pr_number: str) -> str:
 
 def run_and_collect(kernel_slug: str) -> str:
     # Credentials come from ~/.kaggle/kaggle.json, written by the workflow's
-    # "Configure Kaggle credentials" step — more reliable than the
-    # KAGGLE_USERNAME/KAGGLE_KEY env vars, which 401'd against this
-    # kagglesdk-backed client.
-    from kaggle.api.kaggle_api_extended import KaggleApi
+    # "Configure Kaggle credentials" step. Use the package's own
+    # auto-authenticated singleton (kaggle.api) rather than instantiating
+    # KaggleApi() and calling .authenticate() ourselves — the package
+    # auto-authenticates on import, and a second explicit authenticate()
+    # call on a fresh instance 401s against it (known issue in the current
+    # kaggle-cli: https://github.com/Kaggle/kaggle-cli/issues/882).
+    import kaggle
 
-    api = KaggleApi()
-    api.authenticate()
+    api = kaggle.api
 
     api.kernels_push(KERNEL_RUN_DIR)
 
