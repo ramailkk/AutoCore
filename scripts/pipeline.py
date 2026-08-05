@@ -5,7 +5,7 @@ from typing import TypedDict
 from langgraph.graph import END, StateGraph
 
 from github_client import get_changed_python_files, get_diff, post_comment
-from kaggle_dispatch import prepare_kernel_dir, run_and_collect
+from kaggle_dispatch import parse_heavy_result, prepare_kernel_dir, run_and_collect
 from llm_client import chat
 from static_analysis import run_ruff
 from util import fail
@@ -166,7 +166,12 @@ def node_deep_review(state: ReviewState) -> dict:
         state["kaggle_username"], state["repo"], state["pr_number"], state["token"]
     )
     result = run_and_collect(api, kernel_slug)
-    return {"review": result}
+    review, patch = parse_heavy_result(result)
+
+    out = {"review": review}
+    if patch:
+        out["patch"] = patch
+    return out
 
 
 def node_post_comment(state: ReviewState) -> dict:

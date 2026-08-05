@@ -1,10 +1,10 @@
-name: Kaggle Heavy Review (plumbing check)
+name: Kaggle Heavy Review (standalone)
 
 on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: "PR number to run the heavy-tier plumbing check against"
+        description: "PR number to run the heavy-tier deep review against"
         required: true
 
 permissions:
@@ -13,7 +13,7 @@ permissions:
 jobs:
   dispatch:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 

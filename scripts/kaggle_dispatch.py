@@ -9,10 +9,16 @@ from util import fail
 KERNEL_TEMPLATE_DIR = os.path.join("kaggle", "kernel_template")
 KERNEL_RUN_DIR = os.path.join("kaggle", "kernel_run")
 OUTPUT_DIR = os.path.join(KERNEL_RUN_DIR, "output")
-KERNEL_SLUG = "core-heavy-review-check"
+# Renamed from core-heavy-review-check now that this runs real inference,
+# not just the GPU/connectivity plumbing check — creates a new Kaggle
+# kernel entity; the old "-check" one is left behind, harmless.
+KERNEL_SLUG = "core-heavy-review"
 
 POLL_INTERVAL_SECONDS = 20
-POLL_TIMEOUT_SECONDS = 20 * 60
+# Real model download + 4-bit load + generation is unverified timing —
+# 20 min (the old plumbing-check budget) is almost certainly too short.
+# 40 min is a rough guess pending an actual observed run.
+POLL_TIMEOUT_SECONDS = 40 * 60
 # COMPLETE is confirmed from a real run's enum repr. These failure-state
 # names are a best guess (not yet observed) — if a run hits an unrecognized
 # terminal state, it'll fall through to the POLL_TIMEOUT_SECONDS failure
@@ -85,6 +91,20 @@ def run_and_collect(api, kernel_slug: str) -> str:
         return f.read()
 
 
+def parse_heavy_result(text: str) -> tuple[str, str]:
+    """Split heavy_review.py's `=== REVIEW === / === PATCH ===` output into
+    (review, patch). patch is "" if the model found no safe fix (or the
+    marker's missing entirely, e.g. an older kernel run)."""
+    if "=== PATCH ===" not in text:
+        return text.strip(), ""
+    review_part, _, patch_part = text.partition("=== PATCH ===")
+    review = review_part.replace("=== REVIEW ===", "", 1).strip()
+    patch = patch_part.strip()
+    if patch.upper() == "NONE":
+        patch = ""
+    return review, patch
+
+
 def main() -> None:
     token = os.environ.get("GITHUB_TOKEN") or fail("GITHUB_TOKEN not set")
     kaggle_username = os.environ.get("KAGGLE_USERNAME") or fail("KAGGLE_USERNAME not set")
@@ -104,9 +124,14 @@ def main() -> None:
 
     kernel_slug = prepare_kernel_dir(kaggle_username, repo, pr_number, token)
     result = run_and_collect(api, kernel_slug)
+    review, patch = parse_heavy_result(result)
 
-    post_comment(repo, pr_number, token, f"### Kaggle heavy tier (plumbing check)\n\n{result}")
-    print("Posted heavy-tier plumbing check result.")
+    body = f"### Kaggle heavy tier (standalone run)\n\n{review}"
+    if patch:
+        body += f"\n\n<details><summary>Suggested patch</summary>\n\n```diff\n{patch}\n```\n</details>"
+
+    post_comment(repo, pr_number, token, body)
+    print("Posted heavy-tier review result.")
 
 
 if __name__ == "__main__":
