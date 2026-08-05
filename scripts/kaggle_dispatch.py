@@ -11,10 +11,6 @@ KERNEL_RUN_DIR = os.path.join("kaggle", "kernel_run")
 OUTPUT_DIR = os.path.join(KERNEL_RUN_DIR, "output")
 KERNEL_SLUG = "core-heavy-review-check"
 
-SECRETS_TEMPLATE_DIR = os.path.join("kaggle", "secrets_template")
-SECRETS_RUN_DIR = os.path.join("kaggle", "secrets_run")
-SECRETS_SLUG = "core-heavy-review-secrets"
-
 POLL_INTERVAL_SECONDS = 20
 POLL_TIMEOUT_SECONDS = 20 * 60
 DONE_STATES = {"complete", "error", "cancelled", "cancelAcknowledged"}
@@ -26,50 +22,14 @@ def render_template(path: str, values: dict) -> str:
     return string.Template(template).safe_substitute(values)
 
 
-def prepare_secrets_dir(kaggle_username: str, github_token: str) -> str:
-    if os.path.exists(SECRETS_RUN_DIR):
-        shutil.rmtree(SECRETS_RUN_DIR)
-    os.makedirs(SECRETS_RUN_DIR)
-
-    metadata = render_template(
-        os.path.join(SECRETS_TEMPLATE_DIR, "dataset-metadata.json"),
-        {"KAGGLE_USERNAME": kaggle_username, "SLUG": SECRETS_SLUG},
-    )
-    with open(os.path.join(SECRETS_RUN_DIR, "dataset-metadata.json"), "w", encoding="utf-8") as f:
-        f.write(metadata)
-
-    with open(os.path.join(SECRETS_RUN_DIR, "github_token.txt"), "w", encoding="utf-8") as f:
-        f.write(github_token)
-
-    return f"{kaggle_username}/{SECRETS_SLUG}"
-
-
-def push_secrets_dataset(api, dataset_slug: str) -> None:
-    # Kaggle Secrets (kaggle_secrets.UserSecretsClient) attached via the UI
-    # don't carry over to kernels triggered via kernels_push — a known
-    # Kaggle API limitation. A private dataset is the documented workaround:
-    # it CAN be attached through kernel-metadata.json's dataset_sources.
-    # There's no clean "does this dataset exist yet" check exposed, so this
-    # tries updating first and falls back to creating on any failure —
-    # broad except is intentional here, not laziness.
-    try:
-        api.dataset_create_version(
-            SECRETS_RUN_DIR, "update token", delete_old_versions=True, quiet=True
-        )
-        print(f"Updated existing secrets dataset {dataset_slug}")
-    except Exception:
-        api.dataset_create_new(SECRETS_RUN_DIR, public=False, quiet=True)
-        print(f"Created new secrets dataset {dataset_slug}")
-
-
-def prepare_kernel_dir(kaggle_username: str, repo: str, pr_number: str) -> str:
+def prepare_kernel_dir(kaggle_username: str, repo: str, pr_number: str, github_token: str) -> str:
     if os.path.exists(KERNEL_RUN_DIR):
         shutil.rmtree(KERNEL_RUN_DIR)
     os.makedirs(KERNEL_RUN_DIR)
 
     script = render_template(
         os.path.join(KERNEL_TEMPLATE_DIR, "heavy_review.py"),
-        {"REPO": repo, "PR_NUMBER": pr_number},
+        {"REPO": repo, "PR_NUMBER": pr_number, "GITHUB_TOKEN": github_token},
     )
     with open(os.path.join(KERNEL_RUN_DIR, "heavy_review.py"), "w", encoding="utf-8") as f:
         f.write(script)
@@ -131,10 +91,7 @@ def main() -> None:
 
     api = kaggle.api
 
-    secrets_slug = prepare_secrets_dir(kaggle_username, token)
-    push_secrets_dataset(api, secrets_slug)
-
-    kernel_slug = prepare_kernel_dir(kaggle_username, repo, pr_number)
+    kernel_slug = prepare_kernel_dir(kaggle_username, repo, pr_number, token)
     result = run_and_collect(api, kernel_slug)
 
     post_comment(repo, pr_number, token, f"### Kaggle heavy tier (plumbing check)\n\n{result}")

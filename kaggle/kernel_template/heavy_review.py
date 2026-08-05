@@ -1,20 +1,21 @@
+import os
+
 import torch
 import requests
 
 REPO = "$REPO"
 PR_NUMBER = "$PR_NUMBER"
 
-# Kaggle Secrets (kaggle_secrets.UserSecretsClient) attached via the UI do
-# not carry over to kernels triggered through the API (kernels_push) — this
-# is a known Kaggle API limitation, not something fixable on our end. The
-# token is instead delivered via a private dataset the dispatch script
-# creates/updates before each push, mounted read-only under /kaggle/input.
-TOKEN_PATH = "/kaggle/input/core-heavy-review-secrets/github_token.txt"
+# Kaggle Secrets (kaggle_secrets.UserSecretsClient, attached via the UI) do
+# not carry over to kernels triggered through the API (kernels_push) — a
+# known Kaggle API limitation. kernel-metadata.json has no env-var
+# injection field either, so the dispatch script templates the token
+# directly into this file before pushing, same as REPO/PR_NUMBER above.
+os.environ["GITHUB_TOKEN"] = "$GITHUB_TOKEN"
 
 
 def main() -> None:
-    with open(TOKEN_PATH, encoding="utf-8") as f:
-        token = f.read().strip()
+    token = os.environ["GITHUB_TOKEN"]
 
     gpu_lines = [f"GPUs available: {torch.cuda.device_count()}"]
     for i in range(torch.cuda.device_count()):

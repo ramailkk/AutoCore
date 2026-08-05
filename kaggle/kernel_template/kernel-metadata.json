@@ -7,7 +7,7 @@
   "is_private": "true",
   "enable_gpu": "true",
   "enable_internet": "true",
-  "dataset_sources": ["$KAGGLE_USERNAME/core-heavy-review-secrets"],
+  "dataset_sources": [],
   "competition_sources": [],
   "kernel_sources": []
 }
