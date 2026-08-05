@@ -7,29 +7,19 @@ from util import fail
 GROQ_API = "https://api.groq.com/openai/v1/chat/completions"
 
 
-def chat(
-    system_prompt: str,
-    user_prompt: str,
-    api_key: str,
-    model: str,
-    json_mode: bool = False,
-) -> str:
-    body = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0.2,
-        "reasoning_format": "hidden",
-    }
-    if json_mode:
-        body["response_format"] = {"type": "json_object"}
-
+def chat(system_prompt: str, user_prompt: str, api_key: str, model: str) -> str:
     resp = requests.post(
         GROQ_API,
         headers={"Authorization": f"Bearer {api_key}"},
-        json=body,
+        json={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.2,
+            "reasoning_format": "hidden",
+        },
         timeout=60,
     )
     if resp.status_code != 200:

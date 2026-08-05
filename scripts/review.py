@@ -32,7 +32,8 @@ SYSTEM_PROMPT = (
     '- "none": the diff looks fine, nothing to flag.\n'
     '"review" is the review text — specific and unpadded, or a brief '
     'confirmation if category is "none".\n\n'
-    "Output only the JSON object, nothing else."
+    "Output only the JSON object, nothing else — no markdown code fences, "
+    "no commentary before or after it."
 )
 
 
@@ -41,6 +42,15 @@ def load_profile() -> str:
         with open(PROFILE_PATH, encoding="utf-8") as f:
             return f.read()
     return ""
+
+
+def strip_code_fence(text: str) -> str:
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+        if text.endswith("```"):
+            text = text.rsplit("```", 1)[0]
+    return text.strip()
 
 
 def classify_diff(diff: str, profile: str, api_key: str, model: str) -> tuple[str, str]:
@@ -52,10 +62,10 @@ def classify_diff(diff: str, profile: str, api_key: str, model: str) -> tuple[st
         user_prompt += f"# Repo profile\n\n{profile}\n\n# Diff to review\n\n"
     user_prompt += truncated + note
 
-    raw = chat(SYSTEM_PROMPT, user_prompt, api_key, model, json_mode=True)
+    raw = chat(SYSTEM_PROMPT, user_prompt, api_key, model)
 
     try:
-        data = json.loads(raw)
+        data = json.loads(strip_code_fence(raw))
         category = str(data.get("category", "")).lower()
         review = str(data.get("review", "")).strip()
         if category not in VALID_CATEGORIES or not review:
