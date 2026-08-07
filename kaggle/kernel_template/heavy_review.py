@@ -2,12 +2,17 @@ import os
 import subprocess
 import sys
 
-# Kaggle's preinstalled transformers/accelerate/bitsandbytes versions are
-# unverified against DeepSeek-Coder-V2's custom (trust_remote_code)
-# modeling code — force-upgrading is cheap insurance against a mismatch.
-
+# Pinned to a narrow compatible window, not "latest":
+# - >=4.44.2 needed so transformers' dynamic-module loader stops treating
+#   DeepSeek's `if is_flash_attn_2_available(): import flash_attn` guard as
+#   a hard requirement (fixed in huggingface/transformers#30954) — without
+#   it, from_pretrained refuses to load unless flash_attn is installed,
+#   even though it's never called under attn_implementation="eager".
+# - latest transformers removed `is_torch_fx_available`, which DeepSeek's
+#   modeling file still imports unconditionally, so anything past the
+#   4.x series breaks the other way.
 subprocess.check_call(
-    [sys.executable, "-m", "pip", "install", "-q", "transformers==4.41.2", "accelerate", "bitsandbytes"]
+    [sys.executable, "-m", "pip", "install", "-q", "transformers==4.44.2", "accelerate", "bitsandbytes"]
 )
 import requests
 import torch
@@ -91,6 +96,11 @@ def main() -> None:
         quantization_config=quant_config,
         device_map="auto",
         trust_remote_code=True,
+        # DeepSeek's custom modeling code only defines "eager" and
+        # "flash_attention_2" (no "sdpa") — pin explicitly rather than
+        # relying on auto-selection, and it also sidesteps flash_attn
+        # entirely, which the P100 doesn't support anyway.
+        attn_implementation="eager",
     )
     print("Model loaded.")
 
