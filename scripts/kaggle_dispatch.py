@@ -33,14 +33,16 @@ def render_template(path: str, values: dict) -> str:
     return string.Template(template).safe_substitute(values)
 
 
-def prepare_kernel_dir(kaggle_username: str, repo: str, pr_number: str, github_token: str) -> str:
+def prepare_kernel_dir(
+    kaggle_username: str, repo: str, pr_number: str, github_token: str, hf_token: str = ""
+) -> str:
     if os.path.exists(KERNEL_RUN_DIR):
         shutil.rmtree(KERNEL_RUN_DIR)
     os.makedirs(KERNEL_RUN_DIR)
 
     script = render_template(
         os.path.join(KERNEL_TEMPLATE_DIR, "heavy_review.py"),
-        {"REPO": repo, "PR_NUMBER": pr_number, "GITHUB_TOKEN": github_token},
+        {"REPO": repo, "PR_NUMBER": pr_number, "GITHUB_TOKEN": github_token, "HF_TOKEN": hf_token},
     )
     with open(os.path.join(KERNEL_RUN_DIR, "heavy_review.py"), "w", encoding="utf-8") as f:
         f.write(script)
@@ -110,6 +112,9 @@ def main() -> None:
     kaggle_username = os.environ.get("KAGGLE_USERNAME") or fail("KAGGLE_USERNAME not set")
     repo = os.environ.get("GITHUB_REPOSITORY") or fail("GITHUB_REPOSITORY not set")
     pr_number = os.environ.get("PR_NUMBER") or fail("PR_NUMBER not set")
+    # Optional — DeepSeek-Coder-V2-Lite-Instruct isn't gated, HF_TOKEN just
+    # avoids anonymous-download rate limits.
+    hf_token = os.environ.get("HF_TOKEN", "")
 
     # Credentials come from ~/.kaggle/kaggle.json, written by the workflow's
     # "Configure Kaggle credentials" step. Use the package's own
@@ -122,7 +127,7 @@ def main() -> None:
 
     api = kaggle.api
 
-    kernel_slug = prepare_kernel_dir(kaggle_username, repo, pr_number, token)
+    kernel_slug = prepare_kernel_dir(kaggle_username, repo, pr_number, token, hf_token)
     result = run_and_collect(api, kernel_slug)
     review, patch = parse_heavy_result(result)
 

@@ -61,6 +61,7 @@ class ReviewState(TypedDict, total=False):
     openrouter_key: str
     openrouter_model: str
     kaggle_username: str
+    hf_token: str
     diff: str
     profile: str
     ruff_findings: str
@@ -163,7 +164,11 @@ def node_deep_review(state: ReviewState) -> dict:
 
     api = kaggle.api
     kernel_slug = prepare_kernel_dir(
-        state["kaggle_username"], state["repo"], state["pr_number"], state["token"]
+        state["kaggle_username"],
+        state["repo"],
+        state["pr_number"],
+        state["token"],
+        state.get("hf_token", ""),
     )
     result = run_and_collect(api, kernel_slug)
     review, patch = parse_heavy_result(result)
@@ -225,6 +230,7 @@ def main() -> None:
     openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
     openrouter_model = os.environ.get("OPENROUTER_MODEL", "qwen/qwen3-coder:free")
     kaggle_username = os.environ.get("KAGGLE_USERNAME", "")
+    hf_token = os.environ.get("HF_TOKEN", "")
 
     diff = get_diff(repo, pr_number, token)
     if not diff.strip():
@@ -240,6 +246,7 @@ def main() -> None:
         "openrouter_key": openrouter_key,
         "openrouter_model": openrouter_model,
         "kaggle_username": kaggle_username,
+        "hf_token": hf_token,
         "diff": diff,
         "profile": load_profile(),
     }

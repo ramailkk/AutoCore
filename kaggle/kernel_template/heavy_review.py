@@ -5,10 +5,10 @@ import sys
 # Kaggle's preinstalled transformers/accelerate/bitsandbytes versions are
 # unverified against DeepSeek-Coder-V2's custom (trust_remote_code)
 # modeling code — force-upgrading is cheap insurance against a mismatch.
-subprocess.check_call(
-    [sys.executable, "-m", "pip", "install", "-q", "-U", "transformers", "accelerate", "bitsandbytes"]
-)
 
+subprocess.check_call(
+    [sys.executable, "-m", "pip", "install", "-q", "transformers==4.41.2", "accelerate", "bitsandbytes"]
+)
 import requests
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
@@ -22,6 +22,9 @@ PR_NUMBER = "$PR_NUMBER"
 # injection field either, so the dispatch script templates the token
 # directly into this file before pushing.
 os.environ["GITHUB_TOKEN"] = "$GITHUB_TOKEN"
+# huggingface_hub reads HF_TOKEN from the environment automatically —
+# avoids anonymous-download rate limits on the model pull below.
+os.environ["HF_TOKEN"] = "$HF_TOKEN"
 
 MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
 MAX_DIFF_CHARS = 80_000
