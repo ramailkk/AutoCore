@@ -3,6 +3,7 @@ import re
 import shutil
 import string
 import time
+import subprocess
 
 from github_client import post_comment
 from util import fail
@@ -60,7 +61,13 @@ def prepare_kernel_dir(
 
 def run_and_collect(api, kernel_slug: str) -> str:
     print(f"Pushing kernel {kernel_slug} to Kaggle...")
-    api.kernels_push(KERNEL_RUN_DIR)
+    try:
+    subprocess.run(
+        ["kaggle", "kernels", "push", "-p", KERNEL_RUN_DIR, "--accelerator", "NvidiaTeslaT4"],
+        check=True,
+    )
+    except subprocess.CalledProcessError as e:
+    fail(f"kernel push failed: {e}")
     print("Push call returned, polling for status...")
 
     waited = 0
