@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import string
 import time
@@ -95,16 +96,30 @@ def run_and_collect(api, kernel_slug: str) -> str:
 
 def parse_heavy_result(text: str) -> tuple[str, str]:
     """Split heavy_review.py's `=== REVIEW === / === PATCH ===` output into
-    (review, patch). patch is "" if the model found no safe fix (or the
-    marker's missing entirely, e.g. an older kernel run)."""
-    if "=== PATCH ===" not in text:
-        return text.strip(), ""
-    review_part, _, patch_part = text.partition("=== PATCH ===")
-    review = review_part.replace("=== REVIEW ===", "", 1).strip()
-    patch = patch_part.strip()
-    if patch.upper() == "NONE":
-        patch = ""
-    return review, patch
+    (review, patch).
+
+    Observed in practice: the model doesn't reliably emit the literal
+    "=== PATCH ===" marker even when asked — it sometimes writes a
+    markdown heading like "**Patch:**" instead, with the diff still
+    fenced as ```diff. Falls back to pulling the diff out of that fence
+    when the exact marker isn't found, rather than silently losing a
+    patch the model did produce."""
+    if "=== PATCH ===" in text:
+        review_part, _, patch_part = text.partition("=== PATCH ===")
+        review = review_part.replace("=== REVIEW ===", "", 1).strip()
+        patch = patch_part.strip()
+        if patch.upper() == "NONE":
+            patch = ""
+        return review, patch
+
+    fence = re.search(r"```diff\s*\n(.*?)```", text, re.DOTALL)
+    if fence:
+        patch = fence.group(1).strip()
+        review = (text[: fence.start()] + text[fence.end() :]).strip()
+        review = review.replace("=== REVIEW ===", "", 1).strip()
+        return review, patch
+
+    return text.strip(), ""
 
 
 def main() -> None:

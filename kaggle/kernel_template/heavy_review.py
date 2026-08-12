@@ -11,8 +11,10 @@ import sys
 # - latest transformers removed `is_torch_fx_available`, which DeepSeek's
 #   modeling file still imports unconditionally, so anything past the
 #   4.x series breaks the other way.
+# 4.46.3 confirmed working end-to-end (load + generate) in
+# kaggle/verify_environment.ipynb.
 subprocess.check_call(
-    [sys.executable, "-m", "pip", "install", "-q", "transformers==4.44.2", "accelerate", "bitsandbytes"]
+    [sys.executable, "-m", "pip", "install", "-q", "transformers==4.46.3", "accelerate", "bitsandbytes"]
 )
 import requests
 import torch
