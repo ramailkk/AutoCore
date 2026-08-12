@@ -1,10 +1,17 @@
 import json
 import os
+import subprocess
 from typing import TypedDict
 
 from langgraph.graph import END, StateGraph
 
-from github_client import get_changed_python_files, get_diff, post_comment
+from github_client import (
+    create_pull_request,
+    find_pull_request,
+    get_changed_python_files,
+    get_diff,
+    post_comment,
+)
 from kaggle_dispatch import parse_heavy_result, prepare_kernel_dir, run_and_collect
 from llm_client import chat
 from static_analysis import run_ruff
@@ -55,6 +62,7 @@ PATCH_SYSTEM_PROMPT = (
 class ReviewState(TypedDict, total=False):
     repo: str
     pr_number: str
+    pr_head_ref: str
     token: str
     groq_key: str
     groq_model: str
@@ -69,6 +77,7 @@ class ReviewState(TypedDict, total=False):
     category: str
     review: str
     patch: str
+    pr_url: str
 
 
 def load_profile() -> str:
@@ -179,14 +188,81 @@ def node_deep_review(state: ReviewState) -> dict:
     return out
 
 
+def decide_action(state: ReviewState) -> str:
+    # Deliberately isolated as one small function reading only category +
+    # patch-presence, not folded into the graph wiring — swap this for a
+    # model call later (e.g. to weigh confidence, blast radius) without
+    # touching anything else.
+    if state.get("patch"):
+        return "open_pr"
+    return "post_comment"
+
+
+def node_open_pr(state: ReviewState) -> dict:
+    repo, pr_number, category = state["repo"], state["pr_number"], state["category"]
+    base = state.get("pr_head_ref")
+    if not base:
+        print("WARNING: PR_HEAD_REF not set; falling back to commenting the patch.")
+        return {}
+    # Stable name, not unique-per-run: re-runs (e.g. new commits pushed to
+    # the human's PR) force-push the same branch and update the same bot
+    # PR, rather than piling up duplicates.
+    branch = f"bot/fix-{pr_number}-{category}"
+
+    patch_file = os.path.join(os.sep, "tmp", "bot.patch")
+    with open(patch_file, "w", encoding="utf-8") as f:
+        f.write(state["patch"] + "\n")
+
+    git_steps = [
+        # The workflow already checks out the PR's actual head branch
+        # (`ref: github.head_ref`), so branching off current HEAD is the
+        # base — no need to fetch/checkout origin/<base> separately, which
+        # would depend on remote-tracking refs behaving a particular way
+        # under actions/checkout's shallow clone.
+        ["git", "checkout", "-B", branch],
+        ["git", "apply", "--recount", patch_file],
+        ["git", "config", "user.name", "github-actions[bot]"],
+        ["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"],
+        ["git", "add", "-A"],
+        ["git", "commit", "-m", f"Automated fix: {category} issue on PR #{pr_number}"],
+        ["git", "push", "--force", "origin", branch],
+    ]
+    for step in git_steps:
+        result = subprocess.run(step, capture_output=True, text=True)
+        if result.returncode != 0:
+            # Most likely culprit: an LLM-generated patch (OpenRouter or the
+            # Kaggle heavy tier) didn't apply cleanly — those aren't as
+            # reliably well-formed as Ruff's own diffs. Fall back to
+            # commenting the patch as text rather than losing it entirely.
+            print(f"WARNING: '{' '.join(step)}' failed: {result.stderr}")
+            print("Falling back to commenting the patch instead of opening a PR.")
+            return {}
+
+    title = f"Automated fix: {category} issue (from PR #{pr_number})"
+    body = f"Suggested fix for the issue found on #{pr_number}.\n\n{state['review']}"
+    pr = create_pull_request(repo, branch, base, title, body, state["token"])
+    if pr is None:
+        pr = find_pull_request(repo, branch, base, state["token"])
+        if pr is None:
+            print("WARNING: PR creation returned 422 but no matching open PR found; "
+                  "falling back to commenting the patch instead.")
+            return {}
+
+    print(f"Opened/updated PR: {pr['html_url']}")
+    return {"pr_url": pr["html_url"]}
+
+
 def node_post_comment(state: ReviewState) -> dict:
     label = LABELS.get(state["category"], state["category"])
-    body = f"### AI Code Review — {label}\n\n{state['review']}"
-    if state.get("patch"):
-        body += (
-            "\n\n<details><summary>Suggested patch</summary>\n\n"
-            f"```diff\n{state['patch']}\n```\n</details>"
-        )
+    if state.get("pr_url"):
+        body = f"### AI Code Review — {label}\n\nOpened {state['pr_url']} with a suggested fix."
+    else:
+        body = f"### AI Code Review — {label}\n\n{state['review']}"
+        if state.get("patch"):
+            body += (
+                "\n\n<details><summary>Suggested patch</summary>\n\n"
+                f"```diff\n{state['patch']}\n```\n</details>"
+            )
     post_comment(state["repo"], state["pr_number"], state["token"], body)
     print("Posted review comment.")
     return {}
@@ -198,6 +274,7 @@ def build_graph():
     g.add_node("classify", node_classify)
     g.add_node("generate_patch", node_generate_patch)
     g.add_node("deep_review", node_deep_review)
+    g.add_node("open_pr", node_open_pr)
     g.add_node("post_comment", node_post_comment)
 
     g.set_entry_point("static_analysis")
@@ -212,8 +289,10 @@ def build_graph():
             "none": "post_comment",
         },
     )
-    g.add_edge("generate_patch", "post_comment")
-    g.add_edge("deep_review", "post_comment")
+    action_routes = {"open_pr": "open_pr", "post_comment": "post_comment"}
+    g.add_conditional_edges("generate_patch", decide_action, action_routes)
+    g.add_conditional_edges("deep_review", decide_action, action_routes)
+    g.add_edge("open_pr", "post_comment")
     g.add_edge("post_comment", END)
     return g.compile()
 
@@ -223,6 +302,9 @@ def main() -> None:
     groq_key = os.environ.get("GROQ_API_KEY") or fail("GROQ_API_KEY not set")
     repo = os.environ.get("GITHUB_REPOSITORY") or fail("GITHUB_REPOSITORY not set")
     pr_number = os.environ.get("PR_NUMBER") or fail("PR_NUMBER not set")
+    # Only required if the pipeline reaches open_pr — checked there, not
+    # here, so advice/none/comment-only paths don't need it.
+    pr_head_ref = os.environ.get("PR_HEAD_REF", "")
     groq_model = os.environ.get("GROQ_MODEL", "qwen/qwen3.6-27b")
     # Only required if the pipeline actually reaches generate_patch/deep_review
     # for this diff — checked lazily inside those nodes, not here, so
@@ -240,6 +322,7 @@ def main() -> None:
     state: ReviewState = {
         "repo": repo,
         "pr_number": pr_number,
+        "pr_head_ref": pr_head_ref,
         "token": token,
         "groq_key": groq_key,
         "groq_model": groq_model,

@@ -6,14 +6,23 @@ on:
 
 permissions:
   pull-requests: write
-  contents: read
+  contents: write
 
 jobs:
   review:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      # Checks out the PR's actual head branch (not the default merge-ref
+      # checkout) so open_pr's git operations branch off the real thing.
+      # persist-credentials stays at its default (true), which is what
+      # lets `git push` work with no extra auth setup below — and because
+      # this is the default GITHUB_TOKEN (not a PAT), GitHub deliberately
+      # does not trigger new workflow runs from that push/PR, so the bot's
+      # own PR won't re-trigger this workflow.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -37,3 +46,4 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REF: ${{ github.head_ref }}
