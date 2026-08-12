@@ -62,12 +62,12 @@ def prepare_kernel_dir(
 def run_and_collect(api, kernel_slug: str) -> str:
     print(f"Pushing kernel {kernel_slug} to Kaggle...")
     try:
-    subprocess.run(
-        ["kaggle", "kernels", "push", "-p", KERNEL_RUN_DIR, "--accelerator", "NvidiaTeslaT4"],
-        check=True,
-    )
+        subprocess.run(
+            ["kaggle", "kernels", "push", "-p", KERNEL_RUN_DIR, "--accelerator", "NvidiaTeslaT4"],
+            check=True,
+        )
     except subprocess.CalledProcessError as e:
-    fail(f"kernel push failed: {e}")
+        fail(f"kernel push failed: {e}")
     print("Push call returned, polling for status...")
 
     waited = 0
