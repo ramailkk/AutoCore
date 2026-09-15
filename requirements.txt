@@ -3,3 +3,4 @@ pathspec
 kaggle
 langgraph
 ruff
+pyyaml

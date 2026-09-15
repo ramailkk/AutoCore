@@ -2,31 +2,16 @@ import os
 import re
 import shutil
 import string
-import time
 import subprocess
+import time
 
-from github_client import post_comment
-from util import fail
+from autocore.config import load_config
+from autocore.integrations.github_client import post_comment
+from autocore.util import fail
 
 KERNEL_TEMPLATE_DIR = os.path.join("kaggle", "kernel_template")
 KERNEL_RUN_DIR = os.path.join("kaggle", "kernel_run")
 OUTPUT_DIR = os.path.join(KERNEL_RUN_DIR, "output")
-# Renamed from core-heavy-review-check now that this runs real inference,
-# not just the GPU/connectivity plumbing check — creates a new Kaggle
-# kernel entity; the old "-check" one is left behind, harmless.
-KERNEL_SLUG = "core-heavy-review"
-
-POLL_INTERVAL_SECONDS = 20
-# Real model download + 4-bit load + generation is unverified timing —
-# 20 min (the old plumbing-check budget) is almost certainly too short.
-# 40 min is a rough guess pending an actual observed run.
-POLL_TIMEOUT_SECONDS = 40 * 60
-# COMPLETE is confirmed from a real run's enum repr. These failure-state
-# names are a best guess (not yet observed) — if a run hits an unrecognized
-# terminal state, it'll fall through to the POLL_TIMEOUT_SECONDS failure
-# instead of this one, which will still surface in the logs via the raw
-# status print above.
-DONE_STATES = {"ERROR", "CANCELLED", "CANCELED", "CANCEL_ACKNOWLEDGED", "CANCEL_REQUESTED"}
 
 
 def render_template(path: str, values: dict) -> str:
@@ -42,6 +27,8 @@ def prepare_kernel_dir(
         shutil.rmtree(KERNEL_RUN_DIR)
     os.makedirs(KERNEL_RUN_DIR)
 
+    kernel_slug = load_config()["kaggle"]["kernel_slug"]
+
     script = render_template(
         os.path.join(KERNEL_TEMPLATE_DIR, "heavy_review.py"),
         {"REPO": repo, "PR_NUMBER": pr_number, "GITHUB_TOKEN": github_token, "HF_TOKEN": hf_token},
@@ -51,27 +38,33 @@ def prepare_kernel_dir(
 
     metadata = render_template(
         os.path.join(KERNEL_TEMPLATE_DIR, "kernel-metadata.json"),
-        {"KAGGLE_USERNAME": kaggle_username, "SLUG": KERNEL_SLUG},
+        {"KAGGLE_USERNAME": kaggle_username, "SLUG": kernel_slug},
     )
     with open(os.path.join(KERNEL_RUN_DIR, "kernel-metadata.json"), "w", encoding="utf-8") as f:
         f.write(metadata)
 
-    return f"{kaggle_username}/{KERNEL_SLUG}"
+    return f"{kaggle_username}/{kernel_slug}"
 
 
 def run_and_collect(api, kernel_slug: str) -> str:
+    cfg = load_config()["kaggle"]
+
     print(f"Pushing kernel {kernel_slug} to Kaggle...")
     try:
         subprocess.run(
-            ["kaggle", "kernels", "push", "-p", KERNEL_RUN_DIR, "--accelerator", "NvidiaTeslaT4"],
+            ["kaggle", "kernels", "push", "-p", KERNEL_RUN_DIR, "--accelerator", cfg["accelerator"]],
             check=True,
         )
     except subprocess.CalledProcessError as e:
         fail(f"kernel push failed: {e}")
     print("Push call returned, polling for status...")
 
+    poll_interval = cfg["poll_interval_seconds"]
+    poll_timeout = cfg["poll_timeout_seconds"]
+    done_states = set(cfg["done_states"])
+
     waited = 0
-    while waited < POLL_TIMEOUT_SECONDS:
+    while waited < poll_timeout:
         status = api.kernels_status(kernel_slug)
         # api.kernels_status returns a KernelWorkerStatus enum member, not a
         # plain string — confirmed from a real run (repr looks like
@@ -82,13 +75,13 @@ def run_and_collect(api, kernel_slug: str) -> str:
         print(f"kernel status: {state_name} (waited {waited}s) raw={status!r}")
         if state_name == "COMPLETE":
             break
-        if state_name in DONE_STATES:
+        if state_name in done_states:
             failure_message = getattr(status, "failure_message", None)
             fail(f"kernel run ended with status: {state_name} ({failure_message})")
-        time.sleep(POLL_INTERVAL_SECONDS)
-        waited += POLL_INTERVAL_SECONDS
+        time.sleep(poll_interval)
+        waited += poll_interval
     else:
-        fail(f"kernel did not finish within {POLL_TIMEOUT_SECONDS}s")
+        fail(f"kernel did not finish within {poll_timeout}s")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     api.kernels_output(kernel_slug, path=OUTPUT_DIR, force=True)

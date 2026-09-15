@@ -1,14 +1,7 @@
 import requests
 
-from util import fail
-
-# Provider endpoints. Both are OpenAI-compatible chat-completions APIs, so
-# one chat() function covers both — callers pick a provider by name rather
-# than depending on how each is implemented.
-PROVIDER_ENDPOINTS = {
-    "groq": "https://api.groq.com/openai/v1/chat/completions",
-    "openrouter": "https://openrouter.ai/api/v1/chat/completions",
-}
+from autocore.config import load_config
+from autocore.util import fail
 
 
 def chat(
@@ -18,7 +11,7 @@ def chat(
     model: str,
     provider: str = "groq",
 ) -> str:
-    url = PROVIDER_ENDPOINTS[provider]
+    url = load_config()[provider]["api_url"]
     body = {
         "model": model,
         "messages": [

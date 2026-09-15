@@ -1,0 +1,34 @@
+# All tunable parameters for the review pipeline. Secrets (API keys/tokens)
+# and per-run context (repo, PR number, head ref) stay as environment
+# variables set by the GitHub Actions workflows — only static, non-secret
+# settings live here.
+
+github:
+  api_url: "https://api.github.com"
+
+groq:
+  api_url: "https://api.groq.com/openai/v1/chat/completions"
+  model: "qwen/qwen3.6-27b"
+
+openrouter:
+  api_url: "https://openrouter.ai/api/v1/chat/completions"
+  model: "qwen/qwen3-coder:free"
+
+classify:
+  max_diff_chars: 40000
+  categories: ["major", "minor", "advice", "none"]
+  labels:
+    major: "Major"
+    minor: "Minor"
+    advice: "Advice"
+    none: "No issues found"
+
+kaggle:
+  kernel_slug: "core-heavy-review"
+  accelerator: "NvidiaTeslaT4"
+  poll_interval_seconds: 20
+  poll_timeout_seconds: 2400
+  done_states: ["ERROR", "CANCELLED", "CANCELED", "CANCEL_ACKNOWLEDGED", "CANCEL_REQUESTED"]
+
+profile:
+  path: ".reviewer/profile.md"

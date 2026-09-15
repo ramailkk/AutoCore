@@ -2,11 +2,10 @@ import os
 
 import pathspec
 
-from llm_client import chat
-from util import fail
-
-PROFILE_DIR = ".reviewer"
-PROFILE_PATH = os.path.join(PROFILE_DIR, "profile.md")
+from autocore.config import load_config
+from autocore.models.llm_client import chat
+from autocore.prompts import load_prompt
+from autocore.util import fail
 
 ALWAYS_IGNORE = {".git", ".reviewer", "__pycache__", "node_modules", ".venv", "venv"}
 KEY_FILE_NAMES = {
@@ -37,18 +36,6 @@ ENTRY_POINT_HINTS = ("main", "index", "app", "cli", "server", "__init__")
 SAMPLE_MAX_FILES = 8
 SAMPLE_MAX_CHARS = 1_500
 TREE_MAX_ENTRIES = 500
-
-SYSTEM_PROMPT = (
-    "You are analyzing a code repository to produce a short reference profile "
-    "for future automated code reviews. You are given a file tree, the "
-    "contents of key files (README, manifests), and a sample of actual "
-    "source files. Use the sampled source to infer what the repo actually "
-    "does, not just what its filenames suggest. Write a concise Markdown "
-    "profile with these sections: Purpose, Tech stack, Architecture, "
-    "Key modules/directories, Conventions to follow when reviewing changes. "
-    "Be specific to this repo. Do not speculate beyond what the input shows. "
-    "Keep it under 500 words."
-)
 
 
 def load_ignore_spec(root: str) -> pathspec.PathSpec:
@@ -125,20 +112,21 @@ def build_prompt(tree: list[str], key_files: dict[str, str], samples: dict[str, 
 
 def main() -> None:
     api_key = os.environ.get("GROQ_API_KEY") or fail("GROQ_API_KEY not set")
-    model = os.environ.get("GROQ_MODEL", "qwen/qwen3.6-27b")
+    model = load_config()["groq"]["model"]
     root = os.environ.get("REPO_ROOT", ".")
+    profile_path = load_config()["profile"]["path"]
 
     tree, key_files, source_candidates = scan_repo(root)
     samples = pick_source_sample(root, source_candidates)
     prompt = build_prompt(tree, key_files, samples)
 
-    profile = chat(SYSTEM_PROMPT, prompt, api_key, model)
+    profile = chat(load_prompt("bootstrap_profile_system"), prompt, api_key, model)
 
-    os.makedirs(PROFILE_DIR, exist_ok=True)
-    with open(PROFILE_PATH, "w", encoding="utf-8") as f:
+    os.makedirs(os.path.dirname(profile_path), exist_ok=True)
+    with open(profile_path, "w", encoding="utf-8") as f:
         f.write(profile)
 
-    print(f"Wrote {PROFILE_PATH}")
+    print(f"Wrote {profile_path}")
 
 
 if __name__ == "__main__":

@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 README.md
 kaggle/kernel_run/
+docs
+

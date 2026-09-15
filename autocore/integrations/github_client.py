@@ -1,12 +1,15 @@
 import requests
 
-from util import fail
+from autocore.config import load_config
+from autocore.util import fail
 
-GITHUB_API = "https://api.github.com"
+
+def _api_url() -> str:
+    return load_config()["github"]["api_url"]
 
 
 def get_diff(repo: str, pr_number: str, token: str) -> str:
-    url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}"
+    url = f"{_api_url()}/repos/{repo}/pulls/{pr_number}"
     resp = requests.get(
         url,
         headers={
@@ -24,7 +27,7 @@ def get_changed_python_files(repo: str, pr_number: str, token: str) -> list[str]
     """Filenames of non-deleted .py files changed in the PR, capped at the
     first 100 (one page) — fine for typical PR sizes, will undercount on
     huge PRs since pagination isn't implemented yet."""
-    url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}/files"
+    url = f"{_api_url()}/repos/{repo}/pulls/{pr_number}/files"
     resp = requests.get(
         url,
         headers={
@@ -53,7 +56,7 @@ def create_pull_request(
     rather than creating a new one each time. Caller should fall back to
     find_pull_request() in that case."""
     resp = requests.post(
-        f"{GITHUB_API}/repos/{repo}/pulls",
+        f"{_api_url()}/repos/{repo}/pulls",
         headers={
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
@@ -71,7 +74,7 @@ def create_pull_request(
 def find_pull_request(repo: str, head: str, base: str, token: str) -> dict | None:
     owner = repo.split("/")[0]
     resp = requests.get(
-        f"{GITHUB_API}/repos/{repo}/pulls",
+        f"{_api_url()}/repos/{repo}/pulls",
         headers={
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
@@ -86,7 +89,7 @@ def find_pull_request(repo: str, head: str, base: str, token: str) -> dict | Non
 
 
 def post_comment(repo: str, pr_number: str, token: str, body: str) -> None:
-    url = f"{GITHUB_API}/repos/{repo}/issues/{pr_number}/comments"
+    url = f"{_api_url()}/repos/{repo}/issues/{pr_number}/comments"
     resp = requests.post(
         url,
         headers={
