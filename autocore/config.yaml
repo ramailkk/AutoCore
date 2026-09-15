@@ -8,7 +8,7 @@ github:
 
 groq:
   api_url: "https://api.groq.com/openai/v1/chat/completions"
-  model: "qwen/qwen3.6-27b"
+  model: "qwen/qwen3-32b"
 
 openrouter:
   api_url: "https://openrouter.ai/api/v1/chat/completions"
