@@ -32,3 +32,46 @@ kaggle:
 
 profile:
   path: ".reviewer/profile.md"
+
+risk:
+  # A single-file score >= this forces category="major" before Groq is even
+  # called (a deterministic safety net) — see autocore/risk.py.
+  force_major_threshold: 50
+
+  path_patterns:
+    - pattern: "**/auth/**"
+      points: 30
+      reason: "touches auth/ code"
+    - pattern: "**/migrations/**"
+      points: 25
+      reason: "touches a migration"
+    - pattern: "**secret**"
+      points: 35
+      reason: "path contains 'secret'"
+    - pattern: "**crypto**"
+      points: 30
+      reason: "path contains 'crypto'"
+    - pattern: "**payment**"
+      points: 35
+      reason: "path contains 'payment'"
+
+  content_patterns:
+    - pattern: 'eval\('
+      points: 25
+      reason: "calls eval()"
+    - pattern: 'exec\('
+      points: 25
+      reason: "calls exec()"
+    - pattern: 'subprocess\.'
+      points: 15
+      reason: "shells out via subprocess"
+    - pattern: 'except\s*:'
+      points: 10
+      reason: "bare except clause"
+    - pattern: '(SELECT|INSERT|UPDATE|DELETE).*%s'
+      points: 20
+      reason: "possible raw SQL string interpolation"
+
+  size:
+    points_per_line: 0.5
+    max_points: 20

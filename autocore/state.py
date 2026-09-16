@@ -18,3 +18,5 @@ class ReviewState(TypedDict, total=False):
     review: str
     patch: str
     pr_url: str
+    risk_score: float
+    risk_reasons: list[str]
