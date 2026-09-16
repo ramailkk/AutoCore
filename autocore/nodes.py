@@ -18,6 +18,7 @@ from autocore.integrations.ruff import run_ruff
 from autocore.models.kaggle_heavy import parse_heavy_result, prepare_kernel_dir, run_and_collect
 from autocore.models.llm_client import chat
 from autocore.prompts import load_prompt
+from autocore.risk import is_forced_major, score_diff
 from autocore.state import ReviewState
 from autocore.util import fail, strip_code_fence
 
@@ -37,21 +38,52 @@ def node_static_analysis(state: ReviewState) -> dict:
 
 
 def node_classify(state: ReviewState) -> dict:
-    cfg = load_config()["classify"]
+    full_cfg = load_config()
+    cfg = full_cfg["classify"]
+    risk_cfg = full_cfg["risk"]
     max_diff_chars = cfg["max_diff_chars"]
     valid_categories = set(cfg["categories"])
 
-    diff = state["diff"][:max_diff_chars]
-    note = "\n\n[diff truncated for length]" if len(state["diff"]) > max_diff_chars else ""
+    file_risks, pr_score = score_diff(state["diff"], risk_cfg)
+    risk_reasons = file_risks[0].reasons if file_risks else []
+    result_extra = {"risk_score": pr_score, "risk_reasons": risk_reasons}
+
+    if is_forced_major(pr_score, risk_cfg):
+        top = file_risks[0]
+        print(f"Risk score {pr_score} >= threshold; forcing major without calling Groq "
+              f"(top file: {top.path})")
+        review = f"Forced major: {top.path} scored {top.score:.1f} ({', '.join(top.reasons)})"
+        return {"category": "major", "review": review, **result_extra}
+
+    # No forced override — build a risk-prioritized prompt instead of a
+    # blind diff[:max_diff_chars] truncation: highest-risk files get their
+    # full patch first, anything that doesn't fit the budget is listed by
+    # name only so nothing is silently truncated mid-file.
+    sections = []
+    omitted = []
+    budget = max_diff_chars
+    for fr in file_risks:
+        section = f"### {fr.path} (risk: {fr.score:.1f})\n```diff\n{fr.patch}\n```\n\n"
+        if len(section) <= budget:
+            sections.append(section)
+            budget -= len(section)
+        else:
+            omitted.append((fr.path, fr.score))
+
+    diff_block = "".join(sections) if sections else state["diff"][:max_diff_chars]
+    if omitted:
+        diff_block += "# Files not shown (did not fit in the diff budget)\n\n" + "\n".join(
+            f"- {p} (risk: {s:.1f})" for p, s in omitted
+        )
 
     user_prompt = ""
     if state.get("profile"):
         user_prompt += f"# Repo profile\n\n{state['profile']}\n\n"
     if state.get("ruff_findings"):
         user_prompt += f"# Static analysis findings (Ruff)\n\n{state['ruff_findings']}\n\n"
-    user_prompt += f"# Diff to review\n\n{diff}{note}"
+    user_prompt += f"# Diff to review\n\n{diff_block}"
 
-    groq_model = load_config()["groq"]["model"]
+    groq_model = full_cfg["groq"]["model"]
     raw = chat(load_prompt("classify_system"), user_prompt, state["groq_key"], groq_model)
 
     try:
@@ -65,8 +97,8 @@ def node_classify(state: ReviewState) -> dict:
         category = "major"
         review = raw
 
-    print(f"Classified as: {category}")
-    return {"category": category, "review": review}
+    print(f"Classified as: {category} (risk score: {pr_score})")
+    return {"category": category, "review": review, **result_extra}
 
 
 def node_generate_patch(state: ReviewState) -> dict:
